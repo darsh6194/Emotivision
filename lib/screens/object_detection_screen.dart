@@ -1,5 +1,6 @@
 import 'package:emotivision/screens/story_creation_screen.dart';
 import 'package:emotivision/services/camera_service.dart';
+import 'package:emotivision/services/cloud_vision_service.dart';
 import 'package:emotivision/services/gemini_service.dart';
 import 'package:emotivision/utils/app_colors.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   // Services
   late final GeminiService _geminiService;
   final CameraService _cameraService = CameraService();
+  final CloudVisionService _cloudVisionService = CloudVisionService();
 
   // State variables
   bool _isCameraOn = false;
@@ -33,6 +35,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   bool _isLoading = false;
   ObjectDetector? _objectDetector;
   bool _isDetecting = false;
+  bool _useCloudVision = false; // Toggle between ML Kit and Cloud Vision
 
   // Custom labels we want to detect
   final Set<String> _targetLabels = {
@@ -87,9 +90,53 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   void _processCameraImage(CameraImage image) async {
     if (_isDetecting) return;
     _isDetecting = true;
+    
     try {
-      final bytes = await _cameraService.processCameraImage(image);
+      if (_useCloudVision) {
+        await _processWithCloudVision(image);
+      } else {
+        await _processWithMLKit(image);
+      }
+    } catch (e) {
+      print("Error processing image: $e");
+    } finally {
+      _isDetecting = false;
+    }
+  }
 
+  Future<void> _processWithCloudVision(CameraImage image) async {
+    try {
+      final detections = await _cloudVisionService.detectObjects(image);
+      
+      if (detections.isNotEmpty) {
+        // Filter detections based on target labels
+        final validDetections = detections.where((detection) =>
+          _targetLabels.contains(detection.label.toLowerCase()) &&
+          detection.confidence > 0.7
+        ).toList();
+
+        if (validDetections.isNotEmpty) {
+          // Get the detection with highest confidence
+          final bestDetection = validDetections.reduce((a, b) =>
+            a.confidence > b.confidence ? a : b);
+
+          final confidence = (bestDetection.confidence * 100).toStringAsFixed(1);
+          
+          if (mounted) {
+            setState(() {
+              _detectedObjectLabel = bestDetection.label;
+              _statusMessage = "Detected: ${bestDetection.label} (${confidence}% confidence). Hit Discover!";
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print("Error in Cloud Vision processing: $e");
+    }
+  }
+
+  Future<void> _processWithMLKit(CameraImage image) async {
+    try {
       // Get image rotation
       final camera = _cameraService.controller!;
       final rotation = InputImageRotation.values.firstWhere(
@@ -97,23 +144,19 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         orElse: () => InputImageRotation.rotation0deg,
       );
 
-      // Get image format
-      final format = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.bgra8888;
-
-      // Create InputImage
+      // Create InputImage using the first plane of the camera image
       final inputImage = InputImage.fromBytes(
-        bytes: bytes,
+        bytes: image.planes[0].bytes,
         metadata: InputImageMetadata(
           size: Size(image.width.toDouble(), image.height.toDouble()),
           rotation: rotation,
-          format: format,
+          format: InputImageFormat.bgra8888,
           bytesPerRow: image.planes[0].bytesPerRow,
         ),
       );
 
       final objects = await _objectDetector?.processImage(inputImage);
       if (objects != null && objects.isNotEmpty) {
-        // Get all objects with confidence above threshold
         final validObjects = objects.where((object) => 
           object.labels.isNotEmpty && 
           object.labels.first.confidence > 0.7 &&
@@ -121,26 +164,22 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         ).toList();
 
         if (validObjects.isNotEmpty) {
-          // Get the object with highest confidence
           final detectedObject = validObjects.reduce((a, b) => 
             a.labels.first.confidence > b.labels.first.confidence ? a : b);
           
           final label = detectedObject.labels.first.text;
           final confidence = (detectedObject.labels.first.confidence * 100).toStringAsFixed(1);
-          final boundingBox = detectedObject.boundingBox;
           
-          print("Detected $label with ${confidence}% confidence at $boundingBox"); // Debug print
-          
-          setState(() {
-            _detectedObjectLabel = label;
-            _statusMessage = "Detected: $label (${confidence}% confidence). Hit Discover!";
-          });
+          if (mounted) {
+            setState(() {
+              _detectedObjectLabel = label;
+              _statusMessage = "Detected: $label (${confidence}% confidence). Hit Discover!";
+            });
+          }
         }
       }
     } catch (e) {
-      print("Error processing image: $e");
-    } finally {
-      _isDetecting = false;
+      print("Error in ML Kit processing: $e");
     }
   }
 
@@ -261,6 +300,21 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         title: const Text('Object & Emotion Finder'),
         centerTitle: true,
         backgroundColor: AppColors.primaryColor,
+        actions: [
+          // Add toggle switch for Cloud Vision
+          Switch(
+            value: _useCloudVision,
+            onChanged: (value) {
+              setState(() {
+                _useCloudVision = value;
+                _statusMessage = value 
+                  ? "Using Cloud Vision API" 
+                  : "Using On-device ML Kit";
+              });
+            },
+            activeColor: AppColors.primaryGreen,
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

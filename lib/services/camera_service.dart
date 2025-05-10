@@ -1,8 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart';
-import 'dart:typed_data';
 
 class CameraService {
   CameraController? controller;
@@ -66,19 +64,6 @@ class CameraService {
       await controller!.stopImageStream();
     } catch (e) {
       print('Error stopping image stream: $e');
-    }
-  }
-
-  Future<Uint8List> processCameraImage(CameraImage image) async {
-    try {
-      final WriteBuffer allBytes = WriteBuffer();
-      for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
-      }
-      return allBytes.done().buffer.asUint8List();
-    } catch (e) {
-      print('Error processing camera image: $e');
-      throw Exception('Failed to process camera image: $e');
     }
   }
 } 
