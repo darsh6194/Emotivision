@@ -13,7 +13,7 @@ class GeminiService {
   // 1. A backend proxy server that holds the key and makes requests to Gemini.
   // 2. Firebase Remote Config (with strict security rules).
   // 3. Environment variables injected during the build process.
-  static const String _apiKey = "AIzaSyASi7Om5giA9QW7LwYWMt2c7ZpR2RTE0Fc"; // REPLACE WITH YOUR ACTUAL KEY
+  static const String _apiKey = ""; // REPLACE WITH YOUR ACTUAL KEY
 
   // The GenerativeModel instance configured for 'gemini-pro'.
   // This model is suitable for a wide range of text generation tasks.
